@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0a0a1a">
+<title>Watchers</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #0a0a1a;
+    color: #e8e8ff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* --- The immersive 3D canvas --- */
+  #scene {
+    position: fixed;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    z-index: 1;
+  }
+
+  /* --- Intro overlay (before AR starts) --- */
+  #intro {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 32px;
+    text-align: center;
+    background: radial-gradient(ellipse at center, #0f0f2a 0%, #06060f 100%);
+    transition: opacity 0.8s ease;
+  }
+  #intro.hidden { opacity: 0; pointer-events: none; }
+
+  #intro .sigil {
+    width: 120px; height: 120px;
+    margin-bottom: 32px;
+    position: relative;
+  }
+  #intro .sigil::before,
+  #intro .sigil::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 1px solid rgba(140, 180, 255, 0.4);
+    animation: pulse-ring 3s ease-in-out infinite;
+  }
+  #intro .sigil::after {
+    animation-delay: 1.5s;
+    border-color: rgba(200, 140, 255, 0.4);
+  }
+  @keyframes pulse-ring {
+    0%, 100% { transform: scale(0.8); opacity: 0.2; }
+    50% { transform: scale(1.2); opacity: 0.8; }
+  }
+  #intro .sigil-core {
+    position: absolute;
+    inset: 30%;
+    border-radius: 50%;
+    background: radial-gradient(circle, #c0d8ff 0%, #6080ff 40%, transparent 70%);
+    animation: core-glow 2.5s ease-in-out infinite;
+  }
+  @keyframes core-glow {
+    0%, 100% { opacity: 0.7; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.1); }
+  }
+
+  #intro h1 {
+    font-size: 2.4rem;
+    font-weight: 300;
+    letter-spacing: 0.4em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, #c0d8ff 0%, #b090ff 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  #intro p {
+    font-size: 0.9rem;
+    color: rgba(200, 210, 255, 0.5);
+    letter-spacing: 0.2em;
+    margin-bottom: 48px;
+    text-transform: uppercase;
+  }
+
+  #intro .cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 32px;
+    background: rgba(140, 180, 255, 0.1);
+    border: 1px solid rgba(140, 180, 255, 0.4);
+    border-radius: 100px;
+    color: #e0e8ff;
+    font-size: 1rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+  }
+  #intro .cta:hover, #intro .cta:active {
+    background: rgba(140, 180, 255, 0.2);
+    border-color: rgba(200, 160, 255, 0.7);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 40px rgba(140, 180, 255, 0.3);
+  }
+  #intro .cta svg { width: 20px; height: 20px; }
+
+  #intro .hint {
+    margin-top: 24px;
+    font-size: 0.72rem;
+    color: rgba(200, 210, 255, 0.35);
+    letter-spacing: 0.1em;
+    max-width: 320px;
+    line-height: 1.6;
+  }
+
+  /* --- AR hint overlay (during AR) --- */
+  #ar-hint {
+    position: fixed;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 5;
+    padding: 12px 24px;
+    background: rgba(10, 10, 26, 0.7);
+    border: 1px solid rgba(140, 180, 255, 0.3);
+    border-radius: 100px;
+    color: rgba(220, 225, 255, 0.85);
+    font-size: 0.82rem;
+    letter-spacing: 0.1em;
+    backdrop-filter: blur(12px);
+    opacity: 0;
+    transition: opacity 0.6s ease;
+    pointer-events: none;
+    text-align: center;
+    max-width: 90vw;
+  }
+  #ar-hint.show { opacity: 1; }
+
+  /* --- Loading indicator --- */
+  #loading {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background: #06060f;
+    color: rgba(200, 210, 255, 0.6);
+    letter-spacing: 0.2em;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+  }
+  #loading.show { display: flex; }
+  #loading .spinner {
+    width: 40px; height: 40px;
+    border: 1px solid rgba(140, 180, 255, 0.2);
+    border-top-color: #8cb4ff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 24px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* --- Error message --- */
+  #error {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background: #06060f;
+    padding: 32px;
+    text-align: center;
+  }
+  #error.show { display: flex; }
+  #error h2 {
+    font-weight: 300;
+    letter-spacing: 0.3em;
+    margin-bottom: 16px;
+    text-transform: uppercase;
+    font-size: 1.1rem;
+    color: rgba(220, 225, 255, 0.8);
+  }
+  #error p {
+    color: rgba(200, 210, 255, 0.5);
+    font-size: 0.9rem;
+    line-height: 1.7;
+    max-width: 400px;
+    margin-bottom: 24px;
+  }
+  #error button {
+    padding: 12px 24px;
+    background: rgba(140, 180, 255, 0.15);
+    border: 1px solid rgba(140, 180, 255, 0.4);
+    border-radius: 100px;
+    color: #e0e8ff;
+    font-size: 0.85rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  /* --- Unsupported: 2D fallback --- */
+  #fallback-2d {
+    position: fixed;
+    inset: 0;
+    z-index: 8;
+    display: none;
+  }
+  #fallback-2d.show { display: block; }
+  #fallback-2d canvas {
+    width: 100%; height: 100%;
+    display: block;
+  }
+  #fallback-2d .label {
+    position: fixed;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 24px;
+    background: rgba(10, 10, 26, 0.7);
+    border: 1px solid rgba(140, 180, 255, 0.3);
+    border-radius: 100px;
+    color: rgba(220, 225, 255, 0.85);
+    font-size: 0.8rem;
+    letter-spacing: 0.15em;
+    backdrop-filter: blur(12px);
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     INTRO
+     ============================================================ -->
+<div id="intro">
+  <div class="sigil">
+    <div class="sigil-core"></div>
+  </div>
+  <h1>Watchers</h1>
+  <p>A spirit waits</p>
+  <button class="cta" id="enter-btn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+      <path d="M2 17l10 5 10-5"/>
+      <path d="M2 12l10 5 10-5"/>
+    </svg>
+    Enter AR
+  </button>
+  <div class="hint">
+    Point your phone at a flat surface.<br>
+    Tap the screen where you want the spirit to appear.
+  </div>
+</div>
+
+<!-- ============================================================
+     LOADING
+     ============================================================ -->
+<div id="loading">
+  <div class="spinner"></div>
+  <div>Summoning…</div>
+</div>
+
+<!-- ============================================================
+     AR HINT (during session)
+     ============================================================ -->
+<div id="ar-hint">
+  Move your phone slowly to find a surface
+</div>
+
+<!-- ============================================================
+     2D FALLBACK (no WebXR)
+     ============================================================ -->
+<div id="fallback-2d">
+  <canvas id="fallback-canvas"></canvas>
+  <div class="label">Your device doesn't support AR · Tap the crystal</div>
+</div>
+
+<!-- ============================================================
+     ERROR
+     ============================================================ -->
+<div id="error">
+  <h2>Something interrupted</h2>
+  <p id="error-msg">The spirit could not arrive. Please reload the page and try again.</p>
+  <button onclick="location.reload()">Try again</button>
+</div>
+
+<!-- Three.js from CDN -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+// ============================================================
+// WATCHERS — a living crystal spirit
+// Phase 0: pure WebXR, no server, no AI. One file. One being.
+// ============================================================
+
+const CONFIG = {
+  name: 'Watchers',
+  spiritColorA: new THREE.Color('#8cb4ff'),   // cool blue
+  spiritColorB: new THREE.Color('#c090ff'),   // warm violet
+  spiritColorC: new THREE.Color('#80ffe0'),   // aqua accent
+  heartColor: new THREE.Color('#ffffff'),
+  floatHeight: 0.35,       // meters above the surface
+  breatheSpeed: 0.6,
+  rotateSpeed: 0.25,
+  proximityNear: 0.8,      // meters — full brightness
+  proximityFar: 3.5,       // meters — dimmest
+  tapParticleCount: 40,
+};
+
+// ---------- DOM refs ----------
+const intro = document.getElementById('intro');
+const loading = document.getElementById('loading');
+const errorBox = document.getElementById('error');
+const errorMsg = document.getElementById('error-msg');
+const arHint = document.getElementById('ar-hint');
+const fallback2D = document.getElementById('fallback-2d');
+const enterBtn = document.getElementById('enter-btn');
+
+// ============================================================
+// 1. THE SPIRIT — geometry, material, animation
+// ============================================================
+//
+// The spirit is a faceted crystal: an icosahedron with subdivided
+// faces, driven by a custom shader that gives it:
+//   - inner glow pulsing like a heartbeat
+//   - colour shifting between blue and violet
+//   - fresnel edges (bright rim seen at grazing angles)
+//   - subtle vertex displacement so it "breathes"
+//
+// A soft ground halo sits beneath it.
+// A cloud of tiny particles orbits it.
+
+function createSpirit() {
+  const group = new THREE.Group();
+
+  // --- The crystal itself ---
+  // Icosahedron geometry: 20 triangular faces. Beautiful, minimal,
+  // and generates from JavaScript with zero asset loading.
+  const geo = new THREE.IcosahedronGeometry(0.15, 2);
+
+  const uniforms = {
+    uTime: { value: 0 },
+    uBrightness: { value: 1.0 },
+    uColorA: { value: CONFIG.spiritColorA.clone() },
+    uColorB: { value: CONFIG.spiritColorB.clone() },
+    uColorC: { value: CONFIG.spiritColorC.clone() },
+    uHeart: { value: CONFIG.heartColor.clone() },
+    uTapPulse: { value: 0.0 },
+  };
+
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    transparent: true,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    vertexShader: /* glsl */`
+      uniform float uTime;
+      uniform float uTapPulse;
+      varying vec3 vNormal;
+      varying vec3 vViewDir;
+      varying vec3 vPosition;
+
+      void main() {
+        // Gentle breathing: vertices drift outward and back
+        float breathe = sin(uTime * 0.6) * 0.5 + 0.5;
+        float pulse = uTapPulse;
+        vec3 pos = position * (1.0 + breathe * 0.02 + pulse * 0.08);
+
+        // Slight wobble
+        pos.x += sin(uTime * 0.7 + position.y * 12.0) * 0.004;
+        pos.y += cos(uTime * 0.5 + position.z * 12.0) * 0.004;
+        pos.z += sin(uTime * 0.6 + position.x * 12.0) * 0.004;
+
+        vNormal = normalize(normalMatrix * normal);
+        vPosition = pos;
+
+        vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
+        vViewDir = normalize(-mvPos.xyz);
+        gl_Position = projectionMatrix * mvPos;
+      }
+    `,
+    fragmentShader: /* glsl */`
+      uniform float uTime;
+      uniform float uBrightness;
+      uniform float uTapPulse;
+      uniform vec3 uColorA;
+      uniform vec3 uColorB;
+      uniform vec3 uColorC;
+      uniform vec3 uHeart;
+
+      varying vec3 vNormal;
+      varying vec3 vViewDir;
+      varying vec3 vPosition;
+
+      void main() {
+        // Fresnel: bright at edges, subtle in the middle
+        float fresnel = pow(1.0 - abs(dot(vNormal, vViewDir)), 2.0);
+
+        // Breathing colour shift between blue and violet
+        float mix1 = sin(uTime * 0.3) * 0.5 + 0.5;
+        vec3 baseColor = mix(uColorA, uColorB, mix1);
+
+        // Aqua sparkle, modulated by position, driven by time
+        float sparkle = sin(vPosition.x * 40.0 + uTime * 2.0)
+                      * cos(vPosition.y * 40.0 - uTime * 1.7)
+                      * sin(vPosition.z * 40.0 + uTime * 2.3);
+        sparkle = smoothstep(0.7, 1.0, abs(sparkle));
+
+        // The heartbeat: internal pulse of light
+        float heartbeat = pow(sin(uTime * 1.4) * 0.5 + 0.5, 4.0);
+        heartbeat *= 0.6;
+
+        // Compose
+        vec3 color = baseColor * (fresnel * 1.5 + 0.3);
+        color += uColorC * sparkle * 0.5;
+        color += uHeart * heartbeat * 0.4;
+        color *= uBrightness;
+        color += vec3(uTapPulse) * 0.8;
+
+        float alpha = fresnel * 0.9 + 0.15 + heartbeat * 0.2 + uTapPulse * 0.5;
+
+        gl_FragColor = vec4(color, alpha);
+      }
+    `,
+  });
+
+  const crystal = new THREE.Mesh(geo, mat);
+  crystal.userData.uniforms = uniforms;
+  crystal.userData.kind = 'crystal';
+  group.add(crystal);
+
+  // Inner core: a smaller, brighter crystal
+  const coreGeo = new THREE.IcosahedronGeometry(0.06, 1);
+  const coreMat = new THREE.MeshBasicMaterial({
+    color: CONFIG.heartColor,
+    transparent: true,
+    opacity: 0.9,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const core = new THREE.Mesh(coreGeo, coreMat);
+  core.userData.kind = 'core';
+  group.add(core);
+
+  // --- Orbiting particles (the "aura") ---
+  const particleCount = 60;
+  const particleGeo = new THREE.BufferGeometry();
+  const positions = new Float32Array(particleCount * 3);
+  const seeds = new Float32Array(particleCount);
+  for (let i = 0; i < particleCount; i++) {
+    const r = 0.18 + Math.random() * 0.12;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    positions[i*3]     = r * Math.sin(phi) * Math.cos(theta);
+    positions[i*3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+    positions[i*3 + 2] = r * Math.cos(phi);
+    seeds[i] = Math.random();
+  }
+  particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  particleGeo.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1));
+
+  const particleMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uBrightness: { value: 1.0 },
+      uColor: { value: CONFIG.spiritColorC.clone() },
+      uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
+    },
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    vertexShader: /* glsl */`
+      attribute float aSeed;
+      uniform float uTime;
+      uniform float uPixelRatio;
+      varying float vAlpha;
+
+      void main() {
+        // Orbit each particle around Y with its own phase
+        float phase = aSeed * 6.2831;
+        float speed = 0.3 + aSeed * 0.5;
+        float angle = uTime * speed + phase;
+        vec3 p = position;
+        float c = cos(angle), s = sin(angle);
+        p.xz = mat2(c, -s, s, c) * p.xz;
+        // Vertical bob
+        p.y += sin(uTime * 0.8 + phase * 3.0) * 0.02;
+        // Breathe outward
+        p *= 1.0 + sin(uTime * 0.5 + phase) * 0.08;
+
+        vAlpha = 0.3 + 0.7 * (sin(uTime * 1.2 + phase * 2.0) * 0.5 + 0.5);
+
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = (2.0 + aSeed * 3.0) * uPixelRatio * (1.0 / -mv.z);
+      }
+    `,
+    fragmentShader: /* glsl */`
+      uniform vec3 uColor;
+      uniform float uBrightness;
+      varying float vAlpha;
+      void main() {
+        vec2 d = gl_PointCoord - 0.5;
+        float dist = length(d);
+        if (dist > 0.5) discard;
+        float a = smoothstep(0.5, 0.0, dist) * vAlpha * uBrightness;
+        gl_FragColor = vec4(uColor, a);
+      }
+    `,
+  });
+
+  const particles = new THREE.Points(particleGeo, particleMat);
+  particles.userData.uniforms = particleMat.uniforms;
+  particles.userData.kind = 'particles';
+  group.add(particles);
+
+  // --- Ground halo: a soft glow beneath the spirit ---
+  const haloGeo = new THREE.CircleGeometry(0.35, 32);
+  const haloMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uBrightness: { value: 1.0 },
+      uColor: { value: CONFIG.spiritColorA.clone() },
+    },
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    vertexShader: /* glsl */`
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */`
+      uniform vec3 uColor;
+      uniform float uBrightness;
+      uniform float uTime;
+      varying vec2 vUv;
+      void main() {
+        float d = length(vUv - 0.5) * 2.0;
+        float a = smoothstep(1.0, 0.0, d) * 0.6;
+        a *= 0.7 + 0.3 * sin(uTime * 1.5);
+        a *= uBrightness;
+        gl_FragColor = vec4(uColor, a);
+      }
+    `,
+  });
+  const halo = new THREE.Mesh(haloGeo, haloMat);
+  halo.rotation.x = -Math.PI / 2;
+  halo.position.y = -0.22;
+  halo.userData.uniforms = haloMat.uniforms;
+  halo.userData.kind = 'halo';
+  group.add(halo);
+
+  // --- Tap burst particles (hidden until tap) ---
+  const burstCount = CONFIG.tapParticleCount;
+  const burstGeo = new THREE.BufferGeometry();
+  const burstPos = new Float32Array(burstCount * 3);
+  const burstVel = new Float32Array(burstCount * 3);
+  const burstLife = new Float32Array(burstCount);
+  burstGeo.setAttribute('position', new THREE.BufferAttribute(burstPos, 3));
+  burstGeo.setAttribute('aLife', new THREE.BufferAttribute(burstLife, 1));
+
+  const burstMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: CONFIG.spiritColorC.clone() },
+      uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
+    },
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    vertexShader: /* glsl */`
+      attribute float aLife;
+      uniform float uPixelRatio;
+      varying float vAlpha;
+      void main() {
+        vAlpha = aLife;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = (6.0 * aLife + 2.0) * uPixelRatio * (1.0 / -mv.z);
+      }
+    `,
+    fragmentShader: /* glsl */`
+      uniform vec3 uColor;
+      varying float vAlpha;
+      void main() {
+        vec2 d = gl_PointCoord - 0.5;
+        float dist = length(d);
+        if (dist > 0.5) discard;
+        float a = smoothstep(0.5, 0.0, dist) * vAlpha;
+        gl_FragColor = vec4(uColor, a);
+      }
+    `,
+  });
+  const burst = new THREE.Points(burstGeo, burstMat);
+  burst.userData.kind = 'burst';
+  burst.userData.velocities = burstVel;
+  burst.userData.lives = burstLife;
+  burst.visible = false;
+  group.add(burst);
+
+  return group;
+}
+
+// ============================================================
+// 2. THE SPIRIT'S BEHAVIOUR — a stateful, gentle updater
+// ============================================================
+//
+// Called every frame. Handles:
+//   - time accumulation
+//   - rotation (slow, deliberate)
+//   - vertical float (sine wave)
+//   - facing the user (yaw toward camera)
+//   - proximity brightness
+//   - tap pulse decay
+//   - burst particle simulation
+
+class Spirit {
+  constructor(object3D) {
+    this.root = object3D;
+    this.crystal = object3D.children.find(c => c.userData.kind === 'crystal');
+    this.core = object3D.children.find(c => c.userData.kind === 'core');
+    this.particles = object3D.children.find(c => c.userData.kind === 'particles');
+    this.halo = object3D.children.find(c => c.userData.kind === 'halo');
+    this.burst = object3D.children.find(c => c.userData.kind === 'burst');
+
+    this.time = 0;
+    this.tapPulse = 0;
+    this.proximity = 1.0;
+    this.targetYaw = 0;
+    this.currentYaw = 0;
+    this.baseY = 0;
+  }
+
+  setBasePosition(x, y, z) {
+    this.root.position.set(x, y + CONFIG.floatHeight, z);
+    this.baseY = y + CONFIG.floatHeight;
+    this.halo.position.set(x, y + 0.01, z);
+  }
+
+  /** Called on tap — a burst of light and particles */
+  onTap() {
+    this.tapPulse = 1.0;
+
+    // Spawn particles at the crystal
+    const posAttr = this.burst.geometry.attributes.position;
+    const lifeAttr = this.burst.geometry.attributes.aLife;
+    const vels = this.burst.userData.velocities;
+    for (let i = 0; i < posAttr.count; i++) {
+      posAttr.array[i*3]     = 0;
+      posAttr.array[i*3 + 1] = 0;
+      posAttr.array[i*3 + 2] = 0;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const speed = 0.4 + Math.random() * 0.6;
+      vels[i*3]     = speed * Math.sin(phi) * Math.cos(theta);
+      vels[i*3 + 1] = speed * Math.sin(phi) * Math.sin(theta);
+      vels[i*3 + 2] = speed * Math.cos(phi);
+      lifeAttr.array[i] = 1.0;
+    }
+    posAttr.needsUpdate = true;
+    lifeAttr.needsUpdate = true;
+    this.burst.visible = true;
+  }
+
+  /** Called every frame. */
+  update(dt, cameraPos) {
+    this.time += dt;
+
+    // Float: gentle vertical bob
+    const yOffset = Math.sin(this.time * CONFIG.breatheSpeed) * 0.03;
+    this.root.position.y = this.baseY + yOffset;
+
+    // Rotation: slow, deliberate spin
+    this.root.rotation.y += dt * CONFIG.rotateSpeed;
+
+    // Face the user (yaw only, gentle)
+    if (cameraPos) {
+      const dx = cameraPos.x - this.root.position.x;
+      const dz = cameraPos.z - this.root.position.z;
+      this.targetYaw = Math.atan2(dx, dz);
+
+      // Smooth interpolation toward the target
+      let diff = this.targetYaw - this.currentYaw;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      this.currentYaw += diff * Math.min(1, dt * 2.5);
+
+      // Apply as an offset so the base rotation continues
+      this.crystal.rotation.y = this.currentYaw - this.root.rotation.y;
+
+      // Proximity brightness
+      const dist = Math.hypot(dx, dz);
+      const t = THREE.MathUtils.clamp(
+        (dist - CONFIG.proximityNear) / (CONFIG.proximityFar - CONFIG.proximityNear),
+        0, 1
+      );
+      const targetBrightness = 1.0 - t * 0.7;
+      this.proximity += (targetBrightness - this.proximity) * Math.min(1, dt * 3);
+    }
+
+    // Tap pulse decay
+    this.tapPulse *= Math.exp(-dt * 4);
+
+    // Update uniforms
+    const u = this.crystal.userData.uniforms;
+    u.uTime.value = this.time;
+    u.uBrightness.value = this.proximity;
+    u.uTapPulse.value = this.tapPulse;
+
+    this.core.scale.setScalar(1 + this.tapPulse * 0.8 + Math.sin(this.time * 1.4) * 0.05);
+
+    this.particles.userData.uniforms.uTime.value = this.time;
+    this.particles.userData.uniforms.uBrightness.value = this.proximity;
+    this.halo.userData.uniforms.uTime.value = this.time;
+    this.halo.userData.uniforms.uBrightness.value = this.proximity;
+
+    // Burst particles simulation
+    if (this.burst.visible) {
+      const posAttr = this.burst.geometry.attributes.position;
+      const lifeAttr = this.burst.geometry.attributes.aLife;
+      const vels = this.burst.userData.velocities;
+      let anyAlive = false;
+      for (let i = 0; i < posAttr.count; i++) {
+        const life = lifeAttr.array[i];
+        if (life <= 0) continue;
+        anyAlive = true;
+        posAttr.array[i*3]     += vels[i*3]     * dt;
+        posAttr.array[i*3 + 1] += vels[i*3 + 1] * dt;
+        posAttr.array[i*3 + 2] += vels[i*3 + 2] * dt;
+        vels[i*3 + 1] -= dt * 0.5; // gravity
+        lifeAttr.array[i] = Math.max(0, life - dt * 1.2);
+      }
+      posAttr.needsUpdate = true;
+      lifeAttr.needsUpdate = true;
+      if (!anyAlive) this.burst.visible = false;
+    }
+  }
+}
+
+// ============================================================
+// 3. THE AR SESSION
+// ============================================================
+//
+// 1. Ask for WebXR immersive-ar
+// 2. Set up a Three.js renderer bound to the XR session
+// 3. Detect a horizontal plane via hit-test
+// 4. Place the spirit on tap
+// 5. Animate every frame
+
+async function startAR() {
+  if (!navigator.xr) throw new Error('WebXR not available on this device');
+
+  const supported = await navigator.xr.isSessionSupported('immersive-ar');
+  if (!supported) throw new Error('AR not supported on this device');
+
+  const renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    alpha: true,
+    powerPreference: 'high-performance',
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.xr.enabled = true;
+  renderer.setClearColor(0x000000, 0);
+  renderer.domElement.id = 'scene';
+  document.body.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+
+  const camera = new THREE.PerspectiveCamera(
+    70, window.innerWidth / window.innerHeight, 0.01, 20
+  );
+
+  // Lights (some, even though our spirit is emissive)
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x202030, 0.6));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.4);
+  dir.position.set(1, 2, 1);
+  scene.add(dir);
+
+  // The spirit (not yet placed)
+  const spiritObject = createSpirit();
+  spiritObject.visible = false;
+  scene.add(spiritObject);
+  const spirit = new Spirit(spiritObject);
+
+  // --- Hit-test setup ---
+  const session = await navigator.xr.requestSession('immersive-ar', {
+    requiredFeatures: ['hit-test', 'local-floor'],
+    optionalFeatures: ['dom-overlay'],
+    domOverlay: { root: document.body },
+  });
+
+  renderer.xr.setReferenceSpaceType('local');
+  await renderer.xr.setSession(session);
+
+  const viewerSpace = await session.requestReferenceSpace('viewer');
+  const hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+
+  // Reticle: a subtle ring showing where the spirit will land
+  const reticleGeo = new THREE.RingGeometry(0.15, 0.17, 32).rotateX(-Math.PI / 2);
+  const reticleMat = new THREE.MeshBasicMaterial({
+    color: 0x8cb4ff, transparent: true, opacity: 0.7, side: THREE.DoubleSide,
+  });
+  const reticle = new THREE.Mesh(reticleGeo, reticleMat);
+  reticle.matrixAutoUpdate = false;
+  reticle.visible = false;
+  scene.add(reticle);
+
+  // Show the hint
+  arHint.textContent = 'Move your phone slowly to find a surface';
+  arHint.classList.add('show');
+
+  let placed = false;
+
+  // Frame loop
+  renderer.setAnimationLoop((time, frame) => {
+    if (!frame) return;
+
+    // --- Hit-test: find a surface in the middle of the screen ---
+    const hitTestResults = frame.getHitTestResults(hitTestSource);
+    if (hitTestResults.length > 0 && !placed) {
+      const hit = hitTestResults[0];
+      const pose = hit.getPose(renderer.xr.getReferenceSpace());
+      reticle.visible = true;
+      reticle.matrix.fromArray(pose.transform.matrix);
+      arHint.textContent = 'Tap to summon the spirit';
+    } else if (!placed) {
+      reticle.visible = false;
+    }
+
+    // --- Tap to place ---
+    // (See input handling below — it sets a flag we check here.)
+    if (window.__pendingPlacement && reticle.visible && !placed) {
+      window.__pendingPlacement = false;
+      placed = true;
+
+      // Extract position from the reticle matrix
+      const pos = new THREE.Vector3();
+      pos.setFromMatrixPosition(reticle.matrix);
+      spirit.setBasePosition(pos.x, pos.y, pos.z);
+      spiritObject.visible = true;
+      reticle.visible = false;
+
+      arHint.textContent = 'Walk around · Tap the spirit';
+      setTimeout(() => arHint.classList.remove('show'), 3500);
+    }
+
+    // --- Tap the spirit (after placement) ---
+    if (window.__pendingTap && placed) {
+      window.__pendingTap = false;
+      spirit.onTap();
+    }
+
+    // --- Update the spirit with the camera position ---
+    const cam = renderer.xr.getCamera();
+    const camPos = new THREE.Vector3();
+    camPos.setFromMatrixPosition(cam.matrixWorld);
+    spirit.update(1 / 60, camPos);
+
+    renderer.render(scene, camera);
+  });
+
+  // --- Input handling ---
+  // Use the raw pointer events from the DOM overlay.
+  window.addEventListener('pointerdown', (e) => {
+    if (!placed) {
+      window.__pendingPlacement = true;
+    } else {
+      // Raycast against the crystal — if we hit, it's a tap on the spirit
+      const x = (e.clientX / window.innerWidth) * 2 - 1;
+      const y = -(e.clientY / window.innerHeight) * 2 + 1;
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera({ x, y }, renderer.xr.getCamera());
+      const hits = raycaster.intersectObject(spirit.crystal, false);
+      if (hits.length > 0) {
+        window.__pendingTap = true;
+      }
+    }
+  }, { once: false });
+
+  session.addEventListener('end', () => {
+    renderer.setAnimationLoop(null);
+    renderer.domElement.remove();
+  });
+}
+
+// ============================================================
+// 4. THE 2D FALLBACK
+// ============================================================
+//
+// If WebXR is unavailable, we don't punish the user — we show
+// the same living crystal, in a small 2D Three.js scene.
+// Same shaders, same behaviour, no AR. Still beautiful.
+
+function startFallback2D() {
+  fallback2D.classList.add('show');
+  intro.classList.add('hidden');
+
+  const canvas = document.getElementById('fallback-canvas');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(0x06060f, 1);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 10);
+  camera.position.set(0, 0, 1.2);
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x202030, 0.5));
+
+  const spiritObject = createSpirit();
+  scene.add(spiritObject);
+  const spirit = new Spirit(spiritObject);
+  spirit.setBasePosition(0, -0.15, 0);
+
+  // A slow orbit of the camera to show off the crystal
+  let t = 0;
+  renderer.setAnimationLoop((time) => {
+    t += 1 / 60;
+
+    // Slow camera orbit
+    const r = 1.1;
+    const a = t * 0.15;
+    camera.position.set(Math.cos(a) * r, 0.15 + Math.sin(t * 0.4) * 0.05, Math.sin(a) * r);
+    camera.lookAt(0, 0, 0);
+
+    spirit.update(1 / 60, camera.position);
+    renderer.render(scene, camera);
+  });
+
+  // Tap handling: raycast against the crystal
+  canvas.addEventListener('pointerdown', (e) => {
+    const x = (e.clientX / window.innerWidth) * 2 - 1;
+    const y = -(e.clientY / window.innerHeight) * 2 + 1;
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera({ x, y }, camera);
+    const hits = raycaster.intersectObject(spirit.crystal, false);
+    if (hits.length > 0) {
+      spirit.onTap();
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+}
+
+// ============================================================
+// 5. ENTRY POINT
+// ============================================================
+
+enterBtn.addEventListener('click', async () => {
+  intro.classList.add('hidden');
+  loading.classList.add('show');
+
+  try {
+    // Check WebXR availability first
+    const hasXR = !!navigator.xr;
+    const supported = hasXR && await navigator.xr.isSessionSupported('immersive-ar');
+
+    if (supported) {
+      await startAR();
+      loading.classList.remove('show');
+    } else {
+      // Fall back gracefully
+      loading.classList.remove('show');
+      intro.classList.remove('hidden');
+      // Show a quick note, then fall back
+      setTimeout(() => {
+        intro.classList.add('hidden');
+        startFallback2D();
+      }, 200);
+    }
+  } catch (err) {
+    loading.classList.remove('show');
+    errorMsg.textContent = err.message || 'The spirit could not arrive.';
+    errorBox.classList.add('show');
+    console.error(err);
+  }
+});
+
+// Hide loading if user dismisses intro by accident
+window.addEventListener('resize', () => {
+  if (window.innerWidth > window.innerHeight * 2) {
+    // Landscape — likely a tablet. Just leave as is.
+  }
+});
+</script>
+
+</body>
+</html>
